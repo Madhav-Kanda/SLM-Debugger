@@ -3,3 +3,4 @@ rank_bm25
 nltk
 transformers
 accelerate>=0.26.0
+vllm

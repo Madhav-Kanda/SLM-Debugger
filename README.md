@@ -38,6 +38,17 @@ cd swebench-bug-fixing
 pip install -r requirements.txt
 ```
 
+3. Install git LFS:
+```bash
+sudo apt install git-lfs
+```
+
+4. Download the files pushed to LFS
+```bash
+git lfs install
+git lfs pull
+```
+
 ## Usage
 
 ### Running the Complete Pipeline

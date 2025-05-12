@@ -7,6 +7,7 @@ from sentence_transformers import SentenceTransformer, util
 
 # Download NLTK tokenizer data if not already downloaded
 nltk.download('punkt', quiet=True)
+nltk.download('punkt_tab')
 
 def rank_files_by_name(file_list, issue_description, n, weightBM25, weightSemantic):
     """

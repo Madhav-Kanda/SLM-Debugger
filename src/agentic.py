@@ -571,7 +571,7 @@ def process_hit_functions():
     )
     
     # Create processor
-    processor = CSVBugRepairProcessor("hit_functions.csv", local_model_config)
+    processor = CSVBugRepairProcessor("src/hit_functions.csv", local_model_config)
     
     # Load and process CSV
     if processor.load_csv():
@@ -598,7 +598,7 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description="Repair buggy functions from CSV using local SLM")
-    parser.add_argument("--csv", default="hit_functions.csv", help="Path to CSV file")
+    parser.add_argument("--csv", default="src/hit_functions.csv", help="Path to CSV file")
     parser.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct", help="Model name")
     parser.add_argument("--output", default="hit_functions_repaired.csv", help="Output CSV path")
     parser.add_argument("--summary", default="repair_summary.md", help="Summary file path")
