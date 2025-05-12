@@ -15,7 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run the complete pipeline for bug localization and patch generation")
     parser.add_argument("--k", type=int, default=60, help="Number of top files to initially consider")
     parser.add_argument("--p", type=int, default=10, help="Number of top files to narrow down to")
-    parser.add_argument("--n", type=int, default=5, help="Number of top functions to consider for bug fixing")
+    parser.add_argument("--n", type=int, default=1, help="Number of top functions to consider for bug fixing")
     parser.add_argument("--bm25", type=float, default=0.8, help="Weight for BM25 ranking in initial file selection")
     parser.add_argument("--semantic", type=float, default=0.2, help="Weight for semantic ranking in initial file selection")
     parser.add_argument("--sem-weight", type=float, default=0.7, help="Weight for semantic ranking in narrowing files")
@@ -36,7 +36,7 @@ def main():
     
     # Set output directory
     if args.output is None:
-        output_dir = f"patches/{k}_{p}_{n}/{weightBM25}_{weightSemantic}"
+        output_dir = f"patches/{k}_{p}_{n}/{weightBM25}_{weightSemantic}_{sem_weight}"
     else:
         output_dir = args.output
     
@@ -57,6 +57,9 @@ def main():
     try:
         with open(args.dataset) as f:
             data_lite = json.load(f)
+        
+        # Create a mapping from row index to instance_id
+        instance_id_map = {str(i): entry["instance_id"] for i, entry in enumerate(data_lite)}
         print(f"Loaded dataset with {len(data_lite)} entries")
     except Exception as e:
         print(f"Error loading dataset: {e}")
@@ -99,18 +102,10 @@ def main():
                 weightSemantic, 
                 enable_logging=args.enable_logging
             )
-            print("\nGenerating docstrings for functions and modules...")
-            enhanced_data = generate_and_insert_docstrings(
-                top_files_data, 
-                k, 
-                weightBM25, 
-                weightSemantic, 
-                enable_logging=args.enable_logging
-            )
     
     # Step 3: Narrow down top k files to top p files using docstrings
     try:
-        narrowed_data_path = f"narrowed_data/{k}_{p}/{weightBM25}_{weightSemantic}.json"
+        narrowed_data_path = f"narrowed_data/{k}_{p}/{(1-sem_weight)}_{sem_weight}.json"
         with open(narrowed_data_path, "r") as f:
             narrowed_data = json.load(f)
         print(f"\nLoaded existing narrowed data from {narrowed_data_path}")
@@ -162,16 +157,49 @@ def main():
     # Create a SWEBench-compatible evaluation file
     swe_bench_patches = []
     for row_idx, result in patch_results.items():
-        # Check if a SWEBench patch file has been created
+        instance_id = instance_id_map.get(str(row_idx), f"row_{row_idx}")  # fallback if not found
+        print("RowIdx is: ", row_idx)
+        model_patch = ""
+
         if "swe_bench_patch_file" in result:
+            print("swe_bench_patch_file is present in results")
             with open(result["swe_bench_patch_file"], "r") as f:
-                swe_bench_patch = json.load(f)
-                swe_bench_patches.append(swe_bench_patch)
+
+                #---------------------
+                raw_patch = json.load(f).get("patch", "")
+                repo_with_underscore = result.get("repo_with_underscore", "")
+
+                cleaned_lines = []
+                for line in raw_patch.splitlines():
+                    if line.startswith(("--- ", "+++ ")):
+                        if repo_with_underscore in line:
+                            idx = line.find(repo_with_underscore)
+                            relative_path = line[idx + len(repo_with_underscore) + 1:]
+                            cleaned_line = line[:4] + f"{'a' if line.startswith('---') else 'b'}/{relative_path}"
+                            cleaned_lines.append(cleaned_line)
+                        else:
+                            cleaned_lines.append(line)
+                    else:
+                        if line.strip():
+                            cleaned_lines.append(line)
+
+                model_patch = "\n".join(cleaned_lines)
+                #----------------------------------
+
+        swe_bench_patches.append({
+            "instance_id": instance_id,
+            "model_name_or_path": "Qwen2.5-7B-Instruct",
+            "model_patch": ""
+        })
+    
+    print(len(swe_bench_patches))
     
     # Save the SWEBench-compatible evaluation file
-    swe_bench_eval_file = os.path.join(output_dir, "swe_bench_evaluation.json")
+    swe_bench_eval_file = os.path.join(output_dir, "swe_bench_evaluation.jsonl")
     with open(swe_bench_eval_file, "w") as f:
-        json.dump(swe_bench_patches, f, indent=4)
+        print("Dumping")
+        for entry in swe_bench_patches:
+            f.write(json.dumps(entry) + "\n")
     
     print(f"\nComplete pipeline finished. Results saved to {output_dir}")
     print(f"Generated SWEBench-compatible evaluation file: {swe_bench_eval_file}")

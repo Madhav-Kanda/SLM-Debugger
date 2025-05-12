@@ -483,6 +483,56 @@ Be concise, but include technical details where useful.
     
     return prompt
 
+import ast
+import textwrap
+
+def insert_inline_docstrings(code: str, docstring_data: list) -> str:
+    """
+    Insert function docstrings inline into the source code string using AST.
+    """
+    lines = code.splitlines()
+    tree = ast.parse(code)
+
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            child.parent = node
+
+    doc_map = {}
+    for item in docstring_data:
+        func = item["function"]
+        key = (func["class_name"], func["name"])
+        doc_map[key] = item["docstring"]
+
+    new_lines = lines[:]
+    offset = 0
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            func_name = node.name
+            class_name = None
+
+            parent = getattr(node, 'parent', None)
+            while parent:
+                if isinstance(parent, ast.ClassDef):
+                    class_name = parent.name
+                    break
+                parent = getattr(parent, 'parent', None)
+
+            key = (class_name, func_name)
+            if key in doc_map:
+                raw_docstring = doc_map[key]
+                docstring = f'"""{raw_docstring}"""\n'
+
+                indent = len(lines[node.lineno - 1]) - len(lines[node.lineno - 1].lstrip())
+                docstring_lines = textwrap.indent(docstring, ' ' * (indent + 4)).splitlines()
+
+                insert_at = node.body[0].lineno if node.body else node.lineno + 1
+                new_lines[insert_at - 1 + offset:insert_at - 1 + offset] = docstring_lines
+                offset += len(docstring_lines)
+
+    return "\n".join(new_lines)
+
+
 def narrow_top_files(top_files_data, n, p, issue_description, weightBM25=0.8, weightSemantic=0.2, sem_weight=0.7, enable_logging=False):
     """
     Narrow down the top k files to top p files that are most relevant to the issue description,
@@ -569,9 +619,12 @@ def narrow_top_files(top_files_data, n, p, issue_description, weightBM25=0.8, we
                     if item['function']['file'].endswith(file_path)
                 ]
                 
-                enhanced_content = content
-                if file_function_docstrings:
-                    enhanced_content = content + "\n\n# Function Docstrings:\n" + "\n\n".join(file_function_docstrings)
+                #New way of adding file docstrings inline along with respective functions
+                inline_docstring_items = [
+                    item for item in function_docstrings
+                    if item['function']['file'].endswith(file_path)
+                ]
+                enhanced_content = insert_inline_docstrings(content, inline_docstring_items)
                 
                 enhanced_file_contents[file_path] = enhanced_content
             except Exception as e:
@@ -605,7 +658,7 @@ def narrow_top_files(top_files_data, n, p, issue_description, weightBM25=0.8, we
                 bm25_scores = bm25_scores / np.max(bm25_scores)
             
             # Combine scores using the specified semantic weight
-            combined_scores = round(sem_weight) * semantic_scores + round(1 - sem_weight) * bm25_scores
+            combined_scores = sem_weight * semantic_scores + (1 - sem_weight) * bm25_scores
             
             # Rank files by combined score
             ranked_files = sorted(zip(file_list, combined_scores, semantic_scores, bm25_scores), 
@@ -619,8 +672,8 @@ def narrow_top_files(top_files_data, n, p, issue_description, weightBM25=0.8, we
                 log_file = os.path.join(log_dir, "ranking_details.json")
                 ranking_details = {
                     "issue_description": issue_description,
-                    "semantic_weight": round(sem_weight),
-                    "bm25_weight": round(1 - sem_weight),
+                    "semantic_weight": sem_weight,
+                    "bm25_weight": (1 - sem_weight),
                     "rankings": [
                         {
                             "file": file,

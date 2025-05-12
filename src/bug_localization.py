@@ -139,7 +139,7 @@ def rank_functions(functions, issue_description):
         semantic_scores = semantic_scores / np.max(semantic_scores)
     
     # Combine scores with weights (0.7 for BM25, 0.3 for semantic)
-    combined_scores = 0.7 * bm25_scores + 0.3 * semantic_scores
+    combined_scores = 0.3 * bm25_scores + 0.7 * semantic_scores
     
     # Create ranked function list
     ranked_functions = []
@@ -243,16 +243,36 @@ def generate_patch(file_path, function, fixed_code):
         with open(file_path, "r", encoding="utf-8") as f:
             original_lines = f.readlines()
         
-        # Create a copy of the original lines
-        patched_lines = original_lines.copy()
-        
-        # Extract the line range for the function
         start_line = function["start_line"] - 1  # 0-indexed
         end_line = function["end_line"]
+        patched_lines = original_lines.copy()
         
-        # Replace the function code with the fixed code
-        fixed_lines = fixed_code.split("\n")
-        patched_lines[start_line:end_line] = [line + "\n" for line in fixed_lines]
+        fixed_lines = [line if line.endswith("\n") else line + "\n" for line in fixed_code.splitlines()]
+        print("\nFixed Lines length:", len(fixed_lines))
+        print("\nFixed lines: ", fixed_lines)
+        
+        expected_old = function["end_line"] - (function["start_line"] - 1)
+        
+        got_old = len(original_lines[start_line : end_line + 1])
+        
+        print(f"expected_old={expected_old}, got_old={got_old}")
+
+        if got_old > expected_old:
+            suffix = patched_lines[end_line:]
+        else:
+            suffix = patched_lines[end_line + 1:]
+
+        full_patched_code = patched_lines[:start_line]
+        full_patched_code += fixed_lines
+        full_patched_code += suffix
+
+        print("\nOriginal Hunk: ", original_lines)
+        print("\nPatched Hunk: ", full_patched_code)
+
+        # with open("/home/madhav/madhav/LMZ/SLM_Debugger_kondor/SLM-Debugger/Testing/original.py","w",encoding="utf-8") as f1:
+        #     f1.writelines(original_lines)
+        # with open("/home/madhav/madhav/LMZ/SLM_Debugger_kondor/SLM-Debugger/Testing/patched.py","w",encoding="utf-8") as f1:
+        #     f1.writelines(full_patched_code)
         
         # Generate unified diff
         import difflib
@@ -260,15 +280,20 @@ def generate_patch(file_path, function, fixed_code):
         if file_path_rel.startswith(os.path.sep):
             file_path_rel = file_path_rel[1:]
             
-        diff = difflib.unified_diff(
+        diff_lines = difflib.unified_diff(
             original_lines,
-            patched_lines,
+            full_patched_code,
             fromfile=f"a/{file_path_rel}",
             tofile=f"b/{file_path_rel}",
-            lineterm=''
+            # lineterm='\n',
+            # n=5
         )
-        
-        return "\n".join(diff)
+
+        diff_text = ''.join(diff_lines)
+        if not diff_text.endswith('\n'):
+            diff_text += '\n'
+        return diff_text
+
     except Exception as e:
         print(f"Error generating patch for {file_path}: {e}")
         return ""
@@ -330,6 +355,52 @@ def batch_generate_fixes(functions, issue_descriptions, model, log_dir=None):
         results.append((functions[i], fixed_code, explanation))
     
     return results
+
+def select_most_buggy_function(functions, issue_description, model):
+    """
+    Ask the LLM to identify the most buggy function among a list of candidates.
+
+    Args:
+        functions (list): List of function dicts (each with 'name', 'source', etc.)
+        issue_description (str): The issue/problem description
+        model: vLLM model instance
+
+    Returns:
+        dict: The single most buggy function selected by the LLM
+    """
+    print("In the function passing 10 functions to LLM and expecting 1 buggy in return")
+    prompt = f"""You are a Python expert analyzing multiple functions to identify the most buggy one based on the issue description.
+
+Issue Description:
+{issue_description}
+
+Below are 10 candidate functions from different parts of the codebase:
+
+"""
+
+    for idx, func in enumerate(functions):
+        prompt += f"\nFunction {idx+1} ({func['name']}):\n```python\n{func['source']}\n```\n"
+
+    prompt += "\nWhich one function is most likely to contain the bug described above? Reply with only the number (e.g., '3'). Do not provide any explanation."
+
+    sampling_params = SamplingParams(
+        temperature=0.2,
+        max_tokens=256,
+        stop=["\n"],
+    )
+
+    output = model.generate([prompt], sampling_params)[0].outputs[0].text.strip()
+
+    # Extract function number (e.g., "Function 3")
+    match = re.search(r'\b(\d+)\b', output)
+    if match:
+        index = int(match.group(1)) - 1
+        print(f"Selected function number {index}")
+        return functions[index]
+    else:
+        print("Warning: Could not parse LLM response. Defaulting to first function.")
+        return functions[0]
+
 
 def localize_and_generate_patches(top_files_data, n=5, output_dir="patches", enable_logging=False):
     """
@@ -417,7 +488,7 @@ def localize_and_generate_patches(top_files_data, n=5, output_dir="patches", ena
                 f.write(patch)
             
             # Add to combined patch
-            combined_patch += patch + "\n\n"
+            combined_patch += patch
             
             patch_results.append({
                 "function_name": func["name"],
