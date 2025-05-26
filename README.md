@@ -14,6 +14,14 @@ The pipeline consists of the following stages:
 6. **Patch Generation**: Generates fixes for the identified functions and creates patch files.
 7. **Evaluation Preparation**: Formats the results for evaluation with the SWEBench toolkit.
 
+## Project Deliverables
+
+- 📄 **Project Report**: [Report](https://drive.google.com/file/d/14GbpUjRrN2HVLlHcSDTbAro1VIPr9dkR/view?usp=drive_link)
+- 📊 **Presentation Slides**: [Presentation](https://docs.google.com/presentation/d/1qUfaNDG-FyH38Jy-8Ta_o7IvNG2sVA-q7L6bM17k6TU/edit?usp=sharing)
+
+> These documents provide a comprehensive overview of the methodology, implementation details, experimental results, and key insights from the project.
+
+
 ## Requirements
 
 - Python 3.8+
